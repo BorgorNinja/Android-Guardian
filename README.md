@@ -99,8 +99,8 @@ Output APK:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release build (unsigned unless you configure a signing block in
-`app/build.gradle.kts`):
+Release build (falls back to debug signing unless `RELEASE_STORE_FILE` env
+var + secrets are set — see CI/CD section below):
 
 ```bash
 ./gradlew assembleRelease
@@ -111,6 +111,51 @@ Release build (unsigned unless you configure a signing block in
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## CI/CD (GitHub Actions)
+
+`.github/workflows/android-ci.yml` builds both variants on every push/PR to
+`main`:
+
+- `assembleDebug` → debug-signed APK
+- `assembleRelease` → release APK (see signing below)
+
+Both are uploaded as workflow artifacts. Pushing a tag matching `v*` (e.g.
+`v1.0.0`) additionally attaches both APKs to a GitHub Release.
+
+### Release signing
+
+`app/build.gradle.kts` reads signing config from environment variables. With
+no secrets configured, `assembleRelease` falls back to the debug keystore —
+the workflow always succeeds and always produces an installable APK, it just
+isn't properly signed for distribution until you add real signing secrets.
+
+To get a properly signed release APK, generate a keystore and add four repo
+secrets (**Settings → Secrets and variables → Actions → New repository secret**):
+
+```bash
+keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias androidguardian
+base64 -w0 release.jks > release.jks.base64   # paste this whole string as the secret
+```
+
+| Secret | Value |
+|---|---|
+| `RELEASE_KEYSTORE_BASE64` | contents of `release.jks.base64` |
+| `RELEASE_STORE_PASSWORD` | keystore password |
+| `RELEASE_KEY_ALIAS` | `androidguardian` (or whatever alias you chose) |
+| `RELEASE_KEY_PASSWORD` | key password |
+
+Once set, every subsequent workflow run produces a properly signed
+`Android-Guardian-release.apk`.
+
+### Triggering a release build manually
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+or use the "Run workflow" button under the Actions tab (`workflow_dispatch`).
 
 ## Notes
 

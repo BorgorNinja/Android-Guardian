@@ -4,6 +4,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// --- Release signing ---------------------------------------------------
+// Resolved from environment variables so CI (GitHub Actions) can inject a
+// real keystore via secrets. If RELEASE_STORE_FILE isn't set, or points to
+// a file that doesn't exist (e.g. no secrets configured on this run — forked
+// PRs never receive secrets), the release build falls back to the debug
+// signing config. That keeps `assembleRelease` producing an installable APK
+// in every environment; only repos with the four RELEASE_* secrets set get
+// a properly signed release artifact.
+val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
+val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
+
 android {
     namespace = "com.borgorninja.androidguardian"
     compileSdk = 35
@@ -16,6 +27,17 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -23,6 +45,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
