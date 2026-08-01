@@ -46,10 +46,14 @@ jobs:
       # (Settings -> Secrets and variables -> Actions). Absent that secret, the
       # release build below automatically falls back to debug signing so the
       # workflow still succeeds and still produces an installable APK.
-      - name: Decode release keystore
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+      - name: Decode release keystore (if configured)
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "${{ github.workspace }}/app/release-keystore.jks"
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "${{ github.workspace }}/app/release-keystore.jks"
+            echo "Decoded release keystore — release APK will be properly signed."
+          else
+            echo "No RELEASE_KEYSTORE_BASE64 secret set — release build will fall back to debug signing."
+          fi
 
       - name: Build debug and release APKs
         env:
