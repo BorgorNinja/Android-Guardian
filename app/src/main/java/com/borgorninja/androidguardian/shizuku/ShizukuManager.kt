@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -118,14 +117,19 @@ object ShizukuManager {
     /**
      * Runs a shell command via `Shizuku.newProcess`, streaming stdout/stderr line-by-line.
      *
-     * Executed entirely on [Dispatchers.IO]; the returned Flow is safe to collect
-     * from a ViewModel's `viewModelScope` without blocking the caller. Cancelling
-     * collection (e.g. navigating away mid-compile) destroys the underlying process
-     * instead of leaking it.
+     * The blocking work (starting the process, reading streams, `waitFor()`) runs
+     * in a child coroutine launched on [Dispatchers.IO]. Deliberately *not* wrapped
+     * in `withContext` here: `awaitClose` must be the direct last statement of the
+     * `callbackFlow` producer scope, or it throws "awaitClose() can only be invoked
+     * from the producer context" — `withContext` installs a different child context,
+     * which broke that contract. `launch` instead creates a proper child coroutine
+     * of the same producer scope, leaving `awaitClose` untouched as the true last call.
      */
     fun runCommand(command: Array<String>): Flow<ProcessLine> = callbackFlow {
-        withContext(Dispatchers.IO) {
-            val process = try {
+        var process: Process? = null
+
+        val job = launch(Dispatchers.IO) {
+            process = try {
                 // newProcess(cmd, env, dir) is not declared public in the Shizuku-API
                 // library, so Class.getMethod() (public members only) throws
                 // NoSuchMethodException here. getDeclaredMethod() finds it regardless
@@ -144,11 +148,12 @@ object ShizukuManager {
             } catch (t: Throwable) {
                 trySend(ProcessLine("Failed to start process: ${t.message}", isError = true))
                 close()
-                return@withContext
+                return@launch
             }
 
-            val stdoutReader = BufferedReader(InputStreamReader(process.inputStream))
-            val stderrReader = BufferedReader(InputStreamReader(process.errorStream))
+            val activeProcess = process!!
+            val stdoutReader = BufferedReader(InputStreamReader(activeProcess.inputStream))
+            val stderrReader = BufferedReader(InputStreamReader(activeProcess.errorStream))
 
             val stdoutThread = Thread {
                 try {
@@ -167,9 +172,9 @@ object ShizukuManager {
             }.apply { isDaemon = true; start() }
 
             val exitCode = try {
-                process.waitFor()
+                activeProcess.waitFor()
             } catch (_: InterruptedException) {
-                process.destroy()
+                activeProcess.destroy()
                 -1
             }
 
@@ -177,11 +182,14 @@ object ShizukuManager {
             stderrThread.join(2_000)
             trySend(ProcessLine("Process exited with code $exitCode", isError = exitCode != 0))
             close()
+        }
 
-            awaitClose {
-                // Collector cancelled (e.g. screen left) before natural completion.
-                if (process.isAlive) process.destroy()
-            }
+        awaitClose {
+            // Collector cancelled (e.g. screen left) before natural completion,
+            // or the flow closed normally above — either way, stop the child
+            // coroutine and make sure the underlying process isn't left running.
+            job.cancel()
+            process?.takeIf { it.isAlive }?.destroy()
         }
     }
 
