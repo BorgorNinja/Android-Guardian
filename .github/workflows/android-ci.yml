@@ -99,37 +99,6 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Publish build log to repo (temporary debug aid)
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 -c "
-          import base64, json, urllib.request
-          with open('build.log', 'rb') as f:
-              content = base64.b64encode(f.read()).decode()
-          existing_sha = None
-          req = urllib.request.Request(
-              'https://api.github.com/repos/${{ github.repository }}/contents/ci-logs/latest-failure.log',
-              headers={'Authorization': 'token ${{ secrets.GITHUB_TOKEN }}', 'Accept': 'application/vnd.github+json'}
-          )
-          try:
-              with urllib.request.urlopen(req) as resp:
-                  existing_sha = json.load(resp)['sha']
-          except Exception:
-              pass
-          payload = {'message': 'CI failure log for run ${{ github.run_id }}', 'content': content, 'branch': 'main'}
-          if existing_sha:
-              payload['sha'] = existing_sha
-          with open('payload.json', 'w') as f:
-              json.dump(payload, f)
-          "
-          curl -s -X PUT \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/ci-logs/latest-failure.log" \
-            --data-binary @payload.json
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
