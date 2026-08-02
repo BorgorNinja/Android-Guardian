@@ -126,14 +126,20 @@ object ShizukuManager {
     fun runCommand(command: Array<String>): Flow<ProcessLine> = callbackFlow {
         withContext(Dispatchers.IO) {
             val process = try {
-                // Signature: newProcess(cmd, env, dir) — env/dir null inherits from shizuku_server.
+                // newProcess(cmd, env, dir) is not declared public in the Shizuku-API
+                // library, so Class.getMethod() (public members only) throws
+                // NoSuchMethodException here. getDeclaredMethod() finds it regardless
+                // of visibility; isAccessible = true bypasses the Java access check
+                // at invoke time. This is safe: it's our own bundled library class,
+                // not a restricted Android platform API subject to hidden-API rules.
                 Shizuku::class.java
-                    .getMethod(
+                    .getDeclaredMethod(
                         "newProcess",
                         Array<String>::class.java,
                         Array<String>::class.java,
                         String::class.java
                     )
+                    .apply { isAccessible = true }
                     .invoke(null, command, null, null) as Process
             } catch (t: Throwable) {
                 trySend(ProcessLine("Failed to start process: ${t.message}", isError = true))
