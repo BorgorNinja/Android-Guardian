@@ -15,6 +15,12 @@ plugins {
 val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
 val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
 
+// CI (GitHub Actions) passes VERSION_CODE = github.run_number (monotonically
+// increasing per workflow run) and VERSION_NAME derived from the release tag.
+// Local builds outside CI fall back to fixed dev values.
+val ciVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+val ciVersionName = System.getenv("VERSION_NAME") ?: "1.0.0-dev"
+
 android {
     namespace = "com.borgorninja.androidguardian"
     compileSdk = 35
@@ -23,8 +29,8 @@ android {
         applicationId = "com.borgorninja.androidguardian"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = ciVersionCode
+        versionName = ciVersionName
     }
 
     signingConfigs {

@@ -9,7 +9,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # required to attach APKs to a GitHub Release on tag push
+  contents: write   # required to create/publish GitHub Releases each successful build
 
 jobs:
   build:
@@ -19,6 +19,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Determine release version
+        id: relver
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v1.0.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version_name=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -57,6 +69,8 @@ jobs:
 
       - name: Build debug and release APKs
         env:
+          VERSION_CODE: ${{ steps.relver.outputs.version_code }}
+          VERSION_NAME: ${{ steps.relver.outputs.version_name }}
           RELEASE_STORE_FILE: ${{ github.workspace }}/app/release-keystore.jks
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -97,12 +111,20 @@ jobs:
           name: Android-Guardian-release
           path: out/Android-Guardian-release.apk
 
-      # Only fires on tag pushes (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
-      - name: Attach APKs to GitHub Release
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+      # Publishes a GitHub Release on every successful build (not on pull_request
+      # runs, to avoid releasing untrusted/unmerged code). If this run was
+      # triggered by pushing a `v*` tag directly, that tag is reused as-is;
+      # otherwise an auto-incrementing `v1.0.<run_number>` tag is created.
+      # softprops/action-gh-release creates the tag automatically if it doesn't
+      # already exist, pointed at the commit that triggered this run.
+      - name: Publish GitHub Release
+        if: success() && github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.relver.outputs.tag }}
+          name: ${{ steps.relver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
           files: |
             out/Android-Guardian-debug.apk
             out/Android-Guardian-release.apk
-          generate_release_notes: true

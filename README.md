@@ -114,14 +114,19 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## CI/CD (GitHub Actions)
 
-`.github/workflows/android-ci.yml` builds both variants on every push/PR to
-`main`:
+`.github/workflows/android-ci.yml` builds both variants on every push to
+`main` (and on PRs, without publishing):
 
 - `assembleDebug` → debug-signed APK
 - `assembleRelease` → release APK (see signing below)
 
-Both are uploaded as workflow artifacts. Pushing a tag matching `v*` (e.g.
-`v1.0.0`) additionally attaches both APKs to a GitHub Release.
+Both are uploaded as workflow artifacts, and — on every successful build on
+`main` (push or manual dispatch, not PRs) — automatically published to the
+repo's **Releases** section under an auto-incrementing tag `v1.0.<run_number>`
+(e.g. `v1.0.7`, `v1.0.8`, ...). `versionCode`/`versionName` in the built APKs
+match that same run number, so each release is independently installable as
+an upgrade over the last (`adb install -r`). Pushing your own `v*` tag instead
+reuses that exact tag/version rather than auto-generating one.
 
 ### Release signing
 
@@ -148,7 +153,7 @@ base64 -w0 release.jks > release.jks.base64   # paste this whole string as the s
 Once set, every subsequent workflow run produces a properly signed
 `Android-Guardian-release.apk`.
 
-### Triggering a release build manually
+### Triggering a specific version tag manually (optional)
 
 ```bash
 git tag v1.0.0
